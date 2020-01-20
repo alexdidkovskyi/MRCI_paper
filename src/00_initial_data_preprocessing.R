@@ -1,3 +1,6 @@
+# This script is the zero step of the analysis of MRCI dataset
+# It is used to preprocess MRCI data; Map of Italy .shp  and create borders of zones of different seismic hazard
+
 library(tidyverse)
 library(sp)
 library(openxlsx)
@@ -8,9 +11,16 @@ library(geosphere)
 library(sf)
 library(magrittr)
 
-### Reading and preprocessing MRCI data
-#### Preparation: Decimal separator changed from ',' to '.'. NA values identifier '--' changed to '-9999' 
-data<- read.xlsx("data/initial/Indicatori_Intero_territorio_nazionale_2018.xlsx",  sheet = 1) %>%
+# Reading and preprocessing MRCI data and Map of Italy .shp ####
+
+#### Decimal separator changed from ',' to '.'. NA values identifier changed from '--' to '-9999' 
+ 
+#### Removing Mappano:  Si fa presente che, ad aprile 2017, si è costituito il nuovo comune di Mappano (TO) come 
+#### aggregazione di porzioni di territorio dei comuni di Caselle Torinese, Borgaro Torinese, Leini e Settimo Torinese. 
+#### Per alcuni dati e indicatori è stato possibile il loro ricalcolo in base alla nuova geografia; 
+#### nei casi restanti si deve fare riferimento alla geografia precedente.
+
+data <- read.xlsx("data/initial/Indicatori_Intero_territorio_nazionale_2018.xlsx",  sheet = 1) %>%
   filter(DZCOM != 'Mappano')
 
 str_vec <- apply(data[,8:397], 2, function(x) sum(is.na(as.numeric(x))))
@@ -18,23 +28,24 @@ data[, which(str_vec == 0) + 7] <- lapply(data[, which(str_vec == 0) + 7], as.nu
 data[data == -9999] <- NA
 rm(str_vec)
 
-### Reading and preprocessing Map Of Italy spatial df:
-
+## Map Of Italy .shp: #
 italy <- readOGR('data/initial/map_of_italy_istat/Com01012018_g_WGS84.shp')
 italy$COMUNE <- iconv(from = "UTF-8", to = 'ISO-8859-1', italy$COMUNE)
 
 
 
-### Merging MRCI and  Map Of Italy spatial df:
+### Merge MRCI df and Map Of Italy spatial df:
 italy$COMUNE[italy$PRO_COM_T %in% setdiff( italy$PRO_COM_T,data$PROCOM)]
 data$DZCOM[ which(data$PROCOM %in% setdiff( data$PROCOM,italy$PRO_COM_T))]
 
-### Barbaro Mossano = Barbaro Vicentino + Mossano 
-### Borgo Veneto =  Megliadino San Fidenzio, Saletto and Santa Margherita d'Adige
-### Fiumicello Villa Vicentina = Fiumicello and Villa Vicentina.
-### Treppo Ligosullo = Ligosullo and Treppo Carnico.
-### Corigliano-Rossano = Corigliano Calabro and Rossano.
-### Torre de' Busi code has been updated
+
+#### Changes in the Italian municipalities (2018):
+#### Barbaro Mossano = Barbaro Vicentino + Mossano 
+#### Borgo Veneto =  Megliadino San Fidenzio, Saletto and Santa Margherita d'Adige
+#### Fiumicello Villa Vicentina = Fiumicello and Villa Vicentina.
+#### Treppo Ligosullo = Ligosullo and Treppo Carnico.
+#### Corigliano-Rossano = Corigliano Calabro and Rossano.
+#### Torre de' Busi code has been updated
 
 com_upd_l <- list(
   list('Barbarano Mossano', c('Barbarano Vicentino', 'Mossano') ),
@@ -45,6 +56,8 @@ com_upd_l <- list(
   list("Torre de' Busi", "Torre de' Busi")
 )
 
+
+## Adjust map of Italy according to the changes (2018)
 italy$PROCOM <- as.character(italy$PRO_COM_T)
 
 italy_g_t <- italy_g <- italy[!italy$COMUNE %in% unlist(sapply(1:length(com_upd_l), function(i) com_upd_l[[i]][[2]])), ]
@@ -71,12 +84,13 @@ italy <- italy_sp
 rm(italy_sp, italy_g, italy_g_t, df_for_it_sp_pol)
 
 
+
+## Change coordinate reference system:
 italy <- spTransform(italy, CRS("+proj=longlat +zone=32 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"), inverse = T)
 italy_fortified <- fortify(italy) %>%
   left_join(italy@data %>%
               mutate(id = as.character(0:(nrow(.) - 1))     )
   )
-
 
 italy_sf <- sf::st_as_sf(italy_fortified, coords = c("long", "lat")) %>% 
   group_by(id, piece) %>% 
@@ -85,6 +99,9 @@ italy_sf <- sf::st_as_sf(italy_fortified, coords = c("long", "lat")) %>%
   ungroup()
 
 
+## Get id of zones of different seismic hazard
+
+### The zone of median seismic hazard
 id_median <- italy_fortified %>% 
   dplyr::select(id, PROCOM) %>% 
   distinct() %>% 
@@ -115,6 +132,7 @@ id_high <- italy_fortified %>%
   pull()
 
 
+## Create borders of zones of different seismic hazard
 italy_ag_median_borders <- st_union(italy_sf[italy_sf$id %in% id_median,]) %>% as(., 'Spatial') %>% fortify()
 italy_ag_moderate_borders <- st_union(italy_sf[italy_sf$id %in% id_moderate,]) %>% as(., 'Spatial') %>% fortify()
 italy_ag_high_borders <- st_union(italy_sf[italy_sf$id %in% id_high,])%>% as(., 'Spatial')  %>% fortify()

@@ -72,7 +72,6 @@ get_copeland <- function(df_, w_ = NULL){
           data_temp %>% select(PROCOM, IDEM) %>% mutate(Building_PC = rank(IDEM)) %>% arrange(Building_PC) %>% select(PROCOM) %>% pull()
     )
   
-  data %>% select(Building_PC, Growth_rate, IVSM, IDEM, PROCOM) %>% filter(PROCOM %in% c('001001','001002','001003','001004'))
   
   cop_list <- list()
   j<- list(c(1:3), c(1:4), c(1:4))
@@ -83,23 +82,20 @@ get_copeland <- function(df_, w_ = NULL){
   }
   
   
-  cop_df <- do.call('rbind',cop_list)%>% t() %>% data.frame() %>% set_colnames(c('x','y','z')) %>% mutate(PROCOM =  sort(rev(rank_df[1,]))) %>%
+  cop_df <- do.call('rbind', cop_list)%>% 
+    t() %>% 
+    data.frame() %>% 
+    set_colnames(c('x','y','z')) %>% 
+    mutate(PROCOM =  sort(rev(rank_df[1,]))) %>%
     left_join(data_temp %>% select(PROCOM, AGMAX_50))
   
   
   
   
-  cop_df  %>%
-    mutate(ag_cl = (cut(AGMAX_50, c(0, 0.05, 0.15, 0.25, 0.3)))) %>% ggplot(., aes(x = WO_IDEM, col = ag_cl)) +geom_density(size = 2) +
-    theme_bw()+
-    xlab('Cop. Score') +
-    scale_color_manual('AG Class',values = tim.colors(5)[1:4])
-  
-  quantile(cop_df$WO_IDEM, 0.75)
-  save_pic('cop_score_distribution')
-  
-  
-  ggplot(cop_df %>% mutate(AG_cl = cut(AGMAX_50, c(0, 0.05, 0.15, 0.25, 0.35))), aes(x = AG_cl, y = WO_IDEM)) +geom_boxplot() +
+  ggplot(cop_df %>% 
+           mutate(AG_cl = cut(AGMAX_50, c(0, 0.05, 0.15, 0.25, 0.35))), 
+         aes(x = AG_cl, y = x)) +
+    geom_boxplot() +
     xlab('AG') +
     theme(
       axis.title = element_text(size = 18),
@@ -112,72 +108,81 @@ get_copeland <- function(df_, w_ = NULL){
   save_pic('cop_score_boxplot')
   
   
+  ###
+  p <- MoI_p(data_ = italy_fortified_%>%
+               left_join(data %>% 
+                           select(PROCOM, DZCOM, AGMAX_50) %>%
+                           left_join(
+                             cop_df %>% 
+                               select(x, PROCOM, AGMAX_50) %>%
+                               rename(Cop_sc = x)
+                             )
+                         ) %>%
+               dplyr::select(long, lat, group, Cop_sc),
+             fill_ = "Cop_sc",
+             m_col = 'black',
+             sc_fill_title = 'Cop. Score',
+             col_t = 'g_n', 
+             sc_fill_value = tim.colors(21),
+             zone_b = T)
+  p
+  
+  save_MoI(name = paste0("MoI_aggr_cont"))
+  
+  ###
   
   
   
-  #### !
+  ### 
   
-  a__1 <- which(data$IVSM >= quantile(data$IVSM, 0.75))
-  a__2 <- which(data$Building_PC >= quantile(data$Building_PC, 0.75))
-  a__3 <- which(data$VAR_PERC <= quantile(data$VAR_PERC, 0.25))
+  italy_ <- italy %>% subset(., DZCOM != 'Mappano')
+  italy_ <- italy_[order(italy_$PROCOM),]
   
-  Reduce(intersect, list(a__1, a__2, a__3))
-  View(data %>% select(PROCOM, IVSM, Building_PC, VAR_PERC) %>% .[
-    Reduce(intersect, list(a__1, a__2, a__3)),])
+  IVSM_top_25 <- which(data$IVSM >= quantile(data$IVSM, 0.75))
+  Building_top_25 <- which(data$Building_PC >= quantile(data$Building_PC, 0.75))
+  VAR_PERC_bottom_25 <- which(data$VAR_PERC <= quantile(data$VAR_PERC, 0.25))
+  
+  Reduce(intersect, list(IVSM_top_25, Building_top_25, VAR_PERC_bottom_25))
+  # View(data %>% select(PROCOM, IVSM, Building_PC, VAR_PERC) %>% .[
+  #  Reduce(intersect, list(IVSM_top_25, Building_top_25, VAR_PERC_bottom_25)),])
   
   
-  data %>% select(AGMAX_50, PROCOM) %>% .[  Reduce(intersect, list(a__1, a__2, a__3)),] %>% mutate(ag_cl = cut(AGMAX_50, c(0, 0.05, 0.15, 0.25, 0.35))) %>%
+  ### # of such municipalities by the classes of ag
+  data %>% 
+    select(AGMAX_50, PROCOM) %>% 
+    .[  Reduce(intersect, 
+               list(IVSM_top_25, 
+                    Building_top_25, 
+                    VAR_PERC_bottom_25)),
+        ] %>% 
+    mutate(ag_cl = cut(AGMAX_50, c(0, 0.05, 0.15, 0.25, 0.35))) %>%
     group_by(ag_cl) %>% summarise(n())
   
-  italy_@data$ag_cl
+  
+  
   data$sel_cr <- NA
-  data$sel_cr[ Reduce(intersect, list(a__1, a__2, a__3))] <- T
-  sum(is.na(data$sel_cr))
+  data$sel_cr[ Reduce(intersect, list(IVSM_top_25, Building_top_25, VAR_PERC_bottom_25))] <- T
   
   data$ag_cl <- data$AGMAX_50 %>% cut(., c(0, 0.05, 0.15, 0.25, 0.35))
   
   italy_@data$ag_cl <- data$AGMAX_50 %>% cut(., c(0, 0.05, 0.15, 0.25, 0.35))
-  data %>% filter(sel_cr == T) %>% group_by(ag_cl) %>%summarise(n())
-  ggplot(data %>% filter(sel_cr == T), aes(x = ag_cl)) + geom_bar(aes(y = (..count..)/sum(..count..)), width = 0.7) +
-    xlab('a(g)') +
-    ylab('%')
-  
-  save_pic("proportions by AG")
   
   
   italy_@data %<>% left_join(data %>% select(PROCOM, ag_cl, sel_cr))
   
   italy_fortified_ <- italy_fortified %>% left_join(italy_@data)%>%
     mutate(ag_cl = as.character(ag_cl))%>% mutate(ag_cl = ifelse(is.na(sel_cr), NA, ag_cl))
-  p <- ggplot(italy_fortified_%>% 
-                dplyr::select(long, lat, group,ag_cl)
-  ) +  
-    theme_minimal()+
-    geom_polygon( aes(x = long, y = lat, 
-                      group = group, 
-                      fill =  ag_cl), alpha = 0.9, size = 0.0015, col = 'black'
-    )+ 
-    theme(axis.title = element_text(size = 14),
-          axis.text = element_text(size = 14),
-          legend.text = element_text(size = 18),
-          legend.title = element_text(size = 18))+
-    xlab('longitude') +
-    ylab('latitude') +
-    scale_x_continuous(breaks = seq(7, 19, by = 2)) +
-    scale_y_continuous(breaks = seq(35, 49, by = 2))+
-    coord_map(projection = "lambert", parameters = c(lat0 = 35 , lat1 = 49)) +
-    scale_fill_manual('ag[max] class',values = tim.colors(20)[c(1, 7, 13, 20)], breaks = levels(data$ag_cl),na.value="gray", na.translate = T)+
-    geom_path(data = italy_ag_high_borders, aes(x = long, y = lat, group = group, linetype = 'ag[max] > 0.25'), color = "black", size = 0.35)+
-    geom_path(data = italy_ag_moderate_borders, aes(x = long, y = lat, group = group, linetype = 'ag[max] > 0.15'),color = "black", size = 0.35)+
-    geom_path(data = italy_ag_median_borders, aes(x = long, y = lat, group = group, lty = 'ag[max] > 0.05'),color = "black", size = 0.35) +
-    scale_linetype_manual('',values = c("ag[max] > 0.05" = "dotted"
-                                        , "ag[max] > 0.15" = "dashed",
-                                        'ag[max] > 0.25'= 'solid')
-    ) +
-    guides(linetype = guide_legend(order = 1))
+
+  
+  p <- MoI_p(data_ =italy_fortified_%>% 
+               dplyr::select(long, lat, group,ag_cl),
+              fill_ = "ag_cl",
+             m_col = 'black',
+             sc_fill_title = 'ag[max] class',
+             col_t = 'm', 
+             sc_fill_value = tim.colors(20)[c(1, 7, 13, 20)],
+             zone_b = T)
   p
-  
-  
   
   save_MoI(name = paste0("MoI_aggr_cont"))
   
